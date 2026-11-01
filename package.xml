@@ -2,7 +2,7 @@
 <?xml-model href="http://download.ros.org/schema/package_format3.xsd" schematypens="http://www.w3.org/2001/XMLSchema"?>
 <package format="3">
   <name>toy_finder</name>
-  <version>0.2.0</version>
+  <version>0.3.0</version>
   <description>指定した色のおもちゃを探して近づく移動ロボット（松尾研 Physical AI 最終課題）</description>
   <maintainer email="you@example.com">your-name</maintainer>
   <license>MIT</license>
@@ -10,6 +10,7 @@
   <depend>rclpy</depend>
   <depend>sensor_msgs</depend>
   <depend>geometry_msgs</depend>
+  <depend>std_msgs</depend>
   <depend>cv_bridge</depend>
   <exec_depend>python3-opencv</exec_depend>
   <exec_depend>python3-numpy</exec_depend>

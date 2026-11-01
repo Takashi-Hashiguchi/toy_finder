@@ -6,6 +6,9 @@
   ARRIVED  : 十分近づいたら止まる
 
 判断の中身は behavior.py、色の検出は detector.py にある。
+
+/target_color（std_msgs/String）で探す色を途中から切り替えられる。
+"stop" を送ると停止する。文章での指示は ask ノード（ask_node.py）が担当する。
 """
 import time
 
@@ -15,9 +18,10 @@ from geometry_msgs.msg import Twist, TwistStamped
 from rclpy.node import Node
 from rclpy.qos import qos_profile_sensor_data
 from sensor_msgs.msg import Image
+from std_msgs.msg import String
 
 from toy_finder.behavior import Command, Params, SeekerBehavior
-from toy_finder.detector import find_color_blob
+from toy_finder.detector import COLOR_RANGES, find_color_blob
 
 
 class SeekerNode(Node):
@@ -37,19 +41,22 @@ class SeekerNode(Node):
         self.declare_parameter("lost_frames_to_search", 10)  # 続けて見失ったら探索へ
         self.declare_parameter("max_width", 320)  # 検出前に縮小する横幅(px)
         self.declare_parameter("image_timeout", 1.0)  # 秒。画像が来なければ停止
+        # true なら、/target_color で色を指示されるまで動かずに待つ（第2段階用）
+        self.declare_parameter("wait_for_command", False)
 
         def param(name):
             return self.get_parameter(name).value
 
-        self.behavior = SeekerBehavior(
-            Params(
-                search_angular_speed=float(param("search_angular_speed")),
-                approach_linear_speed=float(param("approach_linear_speed")),
-                turn_gain=float(param("turn_gain")),
-                arrived_area_ratio=float(param("arrived_area_ratio")),
-                lost_frames_to_search=int(param("lost_frames_to_search")),
-            )
+        self.params = Params(
+            search_angular_speed=float(param("search_angular_speed")),
+            approach_linear_speed=float(param("approach_linear_speed")),
+            turn_gain=float(param("turn_gain")),
+            arrived_area_ratio=float(param("arrived_area_ratio")),
+            lost_frames_to_search=int(param("lost_frames_to_search")),
         )
+        self.behavior = SeekerBehavior(self.params)
+        self.target_color = str(param("target_color"))
+        self.active = not bool(param("wait_for_command"))
         self.bridge = CvBridge()
         self.use_stamped = bool(param("use_stamped"))
         self.start_time = time.monotonic()
@@ -63,13 +70,33 @@ class SeekerNode(Node):
         self.create_subscription(
             Image, param("image_topic"), self.on_image, qos_profile_sensor_data
         )
+        self.create_subscription(String, "/target_color", self.on_target_color, 10)
         # 画像が途切れたときに止めるための見張り
         self.create_timer(0.2, self.on_watchdog)
 
-        self.get_logger().info(
-            f"開始: 色={param('target_color')} を探します"
-            f"（画像={param('image_topic')}, 速度指令={param('cmd_vel_topic')}）"
-        )
+        if self.active:
+            self.get_logger().info(
+                f"開始: 色={self.target_color} を探します"
+                f"（画像={param('image_topic')}, 速度指令={param('cmd_vel_topic')}）"
+            )
+        else:
+            self.get_logger().info("指示待ち: /target_color で色が届くまで止まっています")
+
+    def on_target_color(self, msg: String):
+        color = msg.data.strip().lower()
+        if color == "stop":
+            self.active = False
+            self.publish(Command())
+            self.get_logger().info("指示: 停止します")
+            return
+        if color not in COLOR_RANGES:
+            self.get_logger().warn(f"未対応の色なので無視します: {msg.data}")
+            return
+        # 新しい指示が来たら、状態をリセットして探し直す
+        self.target_color = color
+        self.behavior = SeekerBehavior(self.params)
+        self.active = True
+        self.get_logger().info(f"指示: 色={color} を探します")
 
     def publish(self, command: Command):
         twist = Twist()
@@ -91,10 +118,14 @@ class SeekerNode(Node):
             self.get_logger().info("画像の受信が再開しました")
             self.timed_out = False
 
+        if not self.active:
+            self.publish(Command())
+            return
+
         frame = self.bridge.imgmsg_to_cv2(msg, desired_encoding="bgr8")
         result = find_color_blob(
             frame,
-            self.get_parameter("target_color").value,
+            self.target_color,
             max_width=int(self.get_parameter("max_width").value),
         )
 

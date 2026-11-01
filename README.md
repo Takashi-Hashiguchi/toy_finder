@@ -1,10 +1,18 @@
-# toy_finder（第1段階：色でおもちゃを探して近づく）
+# toy_finder（色でおもちゃを探して近づく＋文章で頼める）
 
 指定した色のおもちゃを探して、近づいて止まるROS 2ノードです。ROS 2 Humble と Gazebo（Classic）の TurtleBot3 waffle_pi を想定しています。
 
 ## 動作確認の状況
-- 色の検出（`detector.py`）と、探す→近づく→止まるの判断（`behavior.py`）は、ROSなしの単体テストで確認済み（`test/`、13件）。
-- ROSノード（`seeker_node.py`）は、ROSの部分を差し替えた簡易テストで動作を確認。**実際の ROS 2 と Gazebo での動作は未確認**。
+- 第1段階（赤いボールを探して近づく）は、ROS 2 Humble + Gazebo で動作を確認済み（2026-11-01）。
+- 色の検出・行動の判断・文章の読み取り（`detector.py` / `behavior.py` / `command_parser.py`）は、ROSなしの単体テスト20件で確認済み。
+- 第2段階（`ask` ノードと色の切り替え）は、ROSの部分を差し替えた簡易テストまで。**Gazebo上での動作はこれから確認**。
+
+## 0.3.0 での変更点（第2段階：文章で頼める）
+- `ask` ノードを追加。「青いボールを探して」のような文章を、LLM（Claude）で探す色に変換して `/target_color` に送る
+- `seeker` は `/target_color` で探す色を途中から切り替えられる。`stop` で停止
+- `wait_for_command` パラメータ：true なら指示が来るまで動かずに待つ
+- APIキーがない・通信できないときは、キーワード（赤・青・緑・黄・止まって）で判定する
+- 青・緑のボールのモデルを追加
 
 ## 0.2.0 での変更点
 - カメラをセンサ用のQoSで購読（Gazeboのカメラ画像が届かない問題の対策）
@@ -61,7 +69,33 @@ ros2 run toy_finder seeker --ros-args -p target_color:=red
 
 色は `red` / `blue` / `green` / `yellow` から選べます。
 
-## 4. うまく動かないとき
+## 4. 文章で頼む（第2段階）
+LLMを使うには、Claude の API キーが必要です（[console.anthropic.com](https://console.anthropic.com) の API Keys で作成）。キーがなくても、キーワード判定で動きます。
+
+```bash
+pip install anthropic
+export ANTHROPIC_API_KEY=ここにキー   # ask を動かすターミナルで設定する
+```
+
+ボールを2色置く（ターミナル2）：
+```bash
+ros2 run gazebo_ros spawn_entity.py -entity red_ball -file $(ros2 pkg prefix toy_finder)/share/toy_finder/models/red_ball.sdf -x 1.5 -y 0.8 -z 0.1
+ros2 run gazebo_ros spawn_entity.py -entity blue_ball -file $(ros2 pkg prefix toy_finder)/share/toy_finder/models/blue_ball.sdf -x -1.5 -y -0.8 -z 0.1
+```
+
+seeker を指示待ちで起動（ターミナル3）：
+```bash
+ros2 run toy_finder seeker --ros-args -p wait_for_command:=true
+```
+
+文章で頼む（ターミナル4）：
+```bash
+ros2 run toy_finder ask
+> 青いボールを探して
+```
+ログに `指示「青いボールを探して」→ 色=blue（llm）` と出て、ロボットが青いボールを探し始めます。`（keyword）` と出た場合は、LLMではなくキーワードで判定しています（APIキーを確認してください）。
+
+## 5. うまく動かないとき
 - **「画像がまだ1枚も届いていません」と出る：** カメラのトピック名が違う。`ros2 topic list | grep image` で確認し、`-p image_topic:=/見つかった名前` を付ける。
 - **回り続けて見つけない：** `ros2 run rqt_image_view rqt_image_view` でカメラ画像にボールが映っているか確認する。映っているのに見つけない場合は、`detector.py` の赤のしきい値（S・V の下限 120 / 70）を下げる。
 - **ぶつかる／手前で止まらない：** `-p arrived_area_ratio:=0.10` のように数値を小さくすると、手前で止まる。
@@ -81,6 +115,7 @@ ros2 run toy_finder seeker --ros-args -p target_color:=red
 | `lost_frames_to_search` | `10` | 何フレーム続けて見失ったら探索に戻るか |
 | `max_width` | `320` | 検出前に縮小する横幅 (px)。0で縮小しない |
 | `image_timeout` | `1.0` | この秒数画像が来なければ停止 |
+| `wait_for_command` | `false` | true なら `/target_color` の指示が来るまで待つ |
 
 ## テスト
 ```bash
@@ -92,5 +127,7 @@ python3 -m pytest test/
 - `toy_finder/detector.py` : 画像から色の塊を見つける（ROS非依存）
 - `toy_finder/behavior.py` : 探す→近づく→止まるの判断（ROS非依存）
 - `toy_finder/seeker_node.py` : 上の2つをつなぐROSノード
-- `models/red_ball.sdf` : Gazeboに置く赤いボール
+- `toy_finder/command_parser.py` : 文章を色に変換する（LLM＋キーワード、ROS非依存）
+- `toy_finder/ask_node.py` : 文章を受け取り `/target_color` に送るROSノード
+- `models/*_ball.sdf` : Gazeboに置く赤・青・緑のボール
 - `test/` : 単体テスト
