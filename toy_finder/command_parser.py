@@ -74,7 +74,8 @@ def parse_by_llm(text: str, client) -> ParsedCommand:
     """Claudeで判定する。失敗したら例外を投げる。"""
     response = client.messages.create(
         model=MODEL,
-        max_tokens=1024,
+        # 考える分も含めた上限。足りないと答えが途中で切れるので余裕を持たせる
+        max_tokens=4096,
         system=SYSTEM_PROMPT,
         messages=[{"role": "user", "content": text}],
         # 単純な分類なので考える量は少なくてよい
@@ -88,6 +89,8 @@ def parse_by_llm(text: str, client) -> ParsedCommand:
     )
     if response.stop_reason == "refusal":
         raise RuntimeError("LLMが回答を断りました")
+    if response.stop_reason == "max_tokens":
+        raise RuntimeError("LLMの答えが途中で切れました")
     answer = next(block.text for block in response.content if block.type == "text")
     data = json.loads(answer)
     if data["color"] not in CHOICES:
