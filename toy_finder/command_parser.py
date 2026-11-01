@@ -115,7 +115,9 @@ def make_client(logger=None) -> Optional[object]:
             logger("anthropic ライブラリがないので、キーワードで判定します（pip install anthropic）")
         return None
     try:
-        return anthropic.Anthropic()
+        # Ubuntu 22.04 に入っている古い brotli だと、圧縮された応答の展開で失敗する。
+        # brotli 圧縮を使わないよう、受け取る圧縮形式を gzip / deflate に限定する。
+        return anthropic.Anthropic(default_headers={"Accept-Encoding": "gzip, deflate"})
     except Exception as error:
         if logger is not None:
             logger(f"APIキーが見つからないので、キーワードで判定します: {error}")
