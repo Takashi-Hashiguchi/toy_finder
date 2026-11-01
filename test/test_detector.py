@@ -46,6 +46,16 @@ def test_nothing_found_on_plain_background():
     assert not find_color_blob(img, "red").found
 
 
+def test_large_image_is_downscaled_with_same_result():
+    # 1920x1080 の画像でも、縮小した場合としない場合で結果がほぼ同じ
+    img = make_image((0, 0, 255), (1500, 540), 120, size=(1080, 1920))
+    small = find_color_blob(img, "red")  # 既定で横320pxに縮小
+    full = find_color_blob(img, "red", max_width=0)  # 縮小しない
+    assert small.found and full.found
+    assert abs(small.center_x - full.center_x) < 0.01
+    assert abs(small.area_ratio - full.area_ratio) < 0.005
+
+
 if __name__ == "__main__":
     for name, fn in list(globals().items()):
         if name.startswith("test_"):

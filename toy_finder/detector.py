@@ -20,6 +20,10 @@ COLOR_RANGES = {
 # 画像全体に対して、これ未満の大きさの色の塊はノイズとして無視する割合
 MIN_AREA_RATIO = 0.0005
 
+# 検出前に、画像の横幅をこの大きさまで縮小する（処理を軽くするため）。
+# 結果は「割合」で返すので、縮小しても center_x / area_ratio の意味は変わらない。
+DEFAULT_MAX_WIDTH = 320
+
 
 @dataclass
 class Detection:
@@ -32,10 +36,22 @@ class Detection:
     area_ratio: float = 0.0
 
 
-def find_color_blob(bgr_image: np.ndarray, color: str) -> Detection:
-    """画像の中から、指定した色の一番大きい塊を探す。"""
+def find_color_blob(
+    bgr_image: np.ndarray, color: str, max_width: int = DEFAULT_MAX_WIDTH
+) -> Detection:
+    """画像の中から、指定した色の一番大きい塊を探す。
+
+    max_width より横幅が大きい画像は、縮小してから処理する（0以下なら縮小しない）。
+    """
     if color not in COLOR_RANGES:
         raise ValueError(f"未対応の色です: {color}（使える色: {list(COLOR_RANGES)}）")
+
+    width = bgr_image.shape[1]
+    if 0 < max_width < width:
+        scale = max_width / float(width)
+        bgr_image = cv2.resize(
+            bgr_image, None, fx=scale, fy=scale, interpolation=cv2.INTER_AREA
+        )
 
     hsv = cv2.cvtColor(bgr_image, cv2.COLOR_BGR2HSV)
 
